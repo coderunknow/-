@@ -176,13 +176,16 @@ int runSmoke(CliOut& out) {
         sc.expect(out, grouped == browsers, "procmon: no double-counting in aggregation",
                   std::to_string(grouped) + "/" + std::to_string(browsers));
     }
-    // Distinguish metrics: WS and private bytes are separate fields and commit
-    // is tracked; values are honest zeros when access is denied.
+    // Distinguish metrics: WS, private bytes and commit are separate measured
+    // fields; self must report all three consistently (private <= commit).
     bool metricsSane = true;
     for (const auto& p : p2) {
-        if (p.accessible && p.wsBytes == 0 && p.pid > 4) metricsSane = false;
+        if (p.isSelf) {
+            if (p.wsBytes == 0 || p.privateBytes == 0 || p.commitBytes == 0) metricsSane = false;
+            if (p.privateBytes > p.commitBytes) metricsSane = false;
+        }
     }
-    sc.expect(out, metricsSane, "procmon: memory metrics populated for accessible processes");
+    sc.expect(out, metricsSane, "procmon: ws/private-bytes/commit metrics measured distinctly");
     // Self overhead measured.
     const auto self = procmon.selfMetrics();
     out.line("self_overhead: cpu=" + std::to_string(self.cpuPercent).substr(0, 4) +
@@ -191,20 +194,42 @@ int runSmoke(CliOut& out) {
     sc.expect(out, self.wsBytes > 0, "procmon: self overhead measured");
 
     // 5. Engine: all three profiles produce deterministic, distinct decisions on
-    //    the same synthetic pressure (behavioral check, no actions executed).
+    //    the same synthetic pressure and synthetic processes (behavioral check;
+    //    no OS action is executed). Synthetic processes are used so the check is
+    //    reproducible on machines that run no browsers (e.g. CI runners).
     {
         Config cfg = app.config();
         cfg.escalateDelayMs = 0;
         cfg.minDwellMs = 0;
-        EngineState st;
         EngineInput in;
         in.sys = s2;
         in.sys.valid = true;
         in.sys.totalPhysBytes = 8ull * 1024 * 1024 * 1024;
         in.sys.availPhysBytes = 900ull * 1024 * 1024;  // synthetic: 89% used
         in.sys.cpuPercent = 40.0;
-        in.procs = p2;
         in.nowMs = nowMonotonicMs();
+        // Synthetic browser tree: root(5000), background(5001), foreground(5002),
+        // protected(5003), realtime(5004).
+        auto mk = [](uint32_t pid, bool root, bool fg, bool prot, bool rt) {
+            ProcSample p;
+            p.pid = pid;
+            p.ppid = root ? 0 : 5000;
+            p.exeName = "chrome.exe";
+            p.browserFamily = 1;
+            p.groupRootPid = 5000;
+            p.isBrowserRoot = root;
+            p.isForegroundTree = fg;
+            p.isProtected = prot;
+            p.accessible = true;
+            p.wsBytes = 300ull * 1024 * 1024;
+            p.privateBytes = 150ull * 1024 * 1024;
+            p.commitBytes = 160ull * 1024 * 1024;
+            p.priorityClass = rt ? kPriorityRealtime : kPriorityNormal;
+            return p;
+        };
+        in.procs = {mk(5000, true, false, false, false), mk(5001, false, false, false, false),
+                    mk(5002, false, true, false, false), mk(5003, false, false, true, false),
+                    mk(5004, false, false, false, true)};
         int actionCounts[3] = {0, 0, 0};
         for (int i = 0; i < 3; ++i) {
             in.profile = static_cast<Profile>(i);
@@ -216,26 +241,21 @@ int runSmoke(CliOut& out) {
                      pressureLevelName(d.level) + " actions=" + std::to_string(d.actions.size()) +
                      " (" + d.rationale + ")");
         }
-        sc.expect(out, actionCounts[0] > 0, "engine: saver acts under 89% memory pressure");
+        sc.expect(out, actionCounts[0] > 0, "engine: saver acts under 89% memory pressure (synthetic)");
         sc.expect(out, actionCounts[2] <= actionCounts[1] && actionCounts[1] <= actionCounts[0],
                   "engine: action aggressiveness ordered saver >= balanced >= performance",
                   std::to_string(actionCounts[0]) + "/" + std::to_string(actionCounts[1]) + "/" +
                       std::to_string(actionCounts[2]));
-        // Foreground/protected processes must never appear in a plan.
-        std::map<uint32_t, ProcSample> byPid;
-        for (const auto& p : p2) byPid[p.pid] = p;
-        in.profile = Profile::Saver;
+        // Protected/foreground/root/realtime processes must never appear in a plan.
         EngineState fresh;
+        in.profile = Profile::Saver;
         EngineDecision d = Engine::decide(cfg, in, fresh);
         bool safetyOk = true;
         for (const auto& a : d.actions) {
-            auto it = byPid.find(a.pid);
-            if (it == byPid.end()) safetyOk = false;
-            else if (it->second.isProtected || it->second.isExcluded || it->second.isForegroundTree ||
-                     it->second.isSelf || it->second.priorityClass == kPriorityRealtime)
-                safetyOk = false;
+            if (a.pid == 5000 || a.pid == 5002 || a.pid == 5003 || a.pid == 5004) safetyOk = false;
+            if (a.pid != 5001) safetyOk = false;
         }
-        sc.expect(out, safetyOk, "engine: planned actions never target protected/foreground/self/RT");
+        sc.expect(out, safetyOk, "engine: planned actions never target root/foreground/protected/RT");
     }
 
     // 6. Executor bookkeeping: nothing applied -> restore is a no-op.

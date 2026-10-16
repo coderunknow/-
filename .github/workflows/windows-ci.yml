@@ -3,6 +3,10 @@
 # hardware (i5-7300U); benchmark output is labeled accordingly.
 name: windows-ci
 
+permissions:
+  contents: read
+  pull-requests: write
+
 on:
   push:
   pull_request:
@@ -100,6 +104,37 @@ jobs:
           if (Test-Path smoke_report.txt) { Get-Content smoke_report.txt >> $env:GITHUB_STEP_SUMMARY }
           if (Test-Path bench_ci_out.txt) { Get-Content bench_ci_out.txt >> $env:GITHUB_STEP_SUMMARY }
           '```' >> $env:GITHUB_STEP_SUMMARY
+
+      # The run logs and artifacts are also mirrored into a PR comment so the
+      # results remain readable through the GitHub API even when the Actions
+      # artifact hosts are unreachable from the reporter's network.
+      - name: Publish reports to PR comment
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $pr = "${{ github.event.pull_request.number }}"
+          if (-not $pr) {
+            $head = "${{ github.ref_name }}"
+            $pr = gh api "repos/$env:GITHUB_REPOSITORY/pulls?head=$($env:GITHUB_REPOSITORY.Split('/')[0]):$head" --jq '.[0].number'
+          }
+          if (-not $pr) { Write-Host "no PR found; skipping"; exit 0 }
+          $body = "<!-- winresgov-ci-report -->`n## windows-ci report (run $($env:GITHUB_RUN_ID), attempt $($env:GITHUB_RUN_ATTEMPT))`n```````n"
+          foreach ($f in 'test_core_out.txt','selftest_report.txt','smoke_report.txt','bench_ci_out.txt','deps.txt') {
+            if (Test-Path $f) { $body += "---- $f ----`n" + (Get-Content $f -Raw) + "`n" }
+          }
+          $body += "```````"
+          if ($body.Length -gt 60000) { $body = $body.Substring(0, 60000) + "`n...truncated" }
+          Set-Content -Path report_body.md -Value $body
+          $existing = gh api "repos/$env:GITHUB_REPOSITORY/issues/$pr/comments" --jq "[.[] | select(.body | startswith(`"<!-- winresgov-ci-report -->`"))] | .[-1].id"
+          if ($existing -and $existing -ne 'null') {
+            gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/issues/comments/$existing" -F body=@report_body.md | Out-Null
+            Write-Host "updated existing report comment $existing"
+          } else {
+            gh api -X POST "repos/$env:GITHUB_REPOSITORY/issues/$pr/comments" -F body=@report_body.md | Out-Null
+            Write-Host "created report comment on PR #$pr"
+          }
 
       - name: Upload artifacts
         if: always()
