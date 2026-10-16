@@ -1,0 +1,118 @@
+# Windows CI: real Windows 10 x64 build + runtime tests + benchmark capture.
+# The runner is a GitHub-hosted Windows Server machine, NOT the reference
+# hardware (i5-7300U); benchmark output is labeled accordingly.
+name: windows-ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test-bench:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Activate MSVC x64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure (CMake, static CRT)
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build Release
+        run: cmake --build build --config Release --parallel
+
+      - name: Unit tests (test_core.exe)
+        shell: pwsh
+        run: |
+          $p = Start-Process -Wait -NoNewWindow -PassThru `
+               -FilePath build\Release\test_core.exe `
+               -RedirectStandardOutput test_core_out.txt -RedirectStandardError test_core_err.txt
+          Get-Content test_core_out.txt
+          if ($p.ExitCode -ne 0) { Write-Error "test_core failed with exit $($p.ExitCode)"; exit 1 }
+
+      - name: Selftest (in-app core tests)
+        shell: pwsh
+        run: |
+          $p = Start-Process -Wait -NoNewWindow -PassThru `
+               -FilePath build\Release\WinResGov.exe -ArgumentList '--selftest','--out','selftest_report.txt' `
+               -RedirectStandardOutput selftest_stdout.txt -RedirectStandardError selftest_stderr.txt
+          Get-Content selftest_stdout.txt
+          if ($p.ExitCode -ne 0) { Write-Error "selftest failed with exit $($p.ExitCode)"; exit 1 }
+
+      - name: Runtime smoke test (monitoring/engine/safety/config)
+        shell: pwsh
+        run: |
+          $p = Start-Process -Wait -NoNewWindow -PassThru `
+               -FilePath build\Release\WinResGov.exe -ArgumentList '--smoke','--out','smoke_report.txt' `
+               -RedirectStandardOutput smoke_stdout.txt -RedirectStandardError smoke_stderr.txt
+          Get-Content smoke_stdout.txt
+          "---- smoke_report.txt ----"
+          Get-Content smoke_report.txt
+          if ($p.ExitCode -ne 0) { Write-Error "smoke test failed with exit $($p.ExitCode)"; exit 1 }
+
+      - name: Benchmark (12 s baseline + candidate)
+        shell: pwsh
+        run: |
+          $p = Start-Process -Wait -NoNewWindow -PassThru `
+               -FilePath build\Release\WinResGov.exe `
+               -ArgumentList '--bench','--seconds','12','--csv','bench_ci.csv','--out','bench_ci_out.txt' `
+               -RedirectStandardOutput bench_stdout.txt -RedirectStandardError bench_stderr.txt
+          Get-Content bench_stdout.txt
+          "---- bench_ci.csv (head) ----"
+          Get-Content bench_ci.csv -TotalCount 20
+          if ($p.ExitCode -ne 0) { Write-Error "benchmark failed with exit $($p.ExitCode)"; exit 1 }
+
+      - name: Verify single-EXE runtime dependencies
+        shell: pwsh
+        run: |
+          $deps = dumpbin /nologo /dependents build\Release\WinResGov.exe
+          $deps | Tee-Object deps.txt
+          $bad = $deps | Select-String -Pattern 'VCRUNTIME|MSVCP|vcruntime|msvcp|libgcc|libstdc\+\+|libwinpthread'
+          if ($bad) {
+            Write-Error "non-self-contained imports found: $bad"
+            exit 1
+          }
+          Write-Host "OK: no application-specific or redistributable DLL dependencies"
+
+      - name: Verify version metadata resource
+        shell: pwsh
+        run: |
+          $vi = (Get-Item build\Release\WinResGov.exe).VersionInfo
+          "ProductVersion:   $($vi.ProductVersion)"
+          "FileVersion:      $($vi.FileVersion)"
+          "ProductName:      $($vi.ProductName)"
+          "OriginalFilename: $($vi.OriginalFilename)"
+          if ($vi.ProductVersion -notlike '0.1.0-dev1*') { Write-Error "unexpected ProductVersion"; exit 1 }
+          if ($vi.OriginalFilename -ne 'WinResGov.exe') { Write-Error "unexpected OriginalFilename"; exit 1 }
+
+      - name: Publish job summary
+        if: always()
+        shell: pwsh
+        run: |
+          "## windows-ci results" >> $env:GITHUB_STEP_SUMMARY
+          "" >> $env:GITHUB_STEP_SUMMARY
+          '```' >> $env:GITHUB_STEP_SUMMARY
+          if (Test-Path smoke_report.txt) { Get-Content smoke_report.txt >> $env:GITHUB_STEP_SUMMARY }
+          if (Test-Path bench_ci_out.txt) { Get-Content bench_ci_out.txt >> $env:GITHUB_STEP_SUMMARY }
+          '```' >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winresgov-v0.1.0-dev1
+          path: |
+            build/Release/WinResGov.exe
+            build/Release/test_core.exe
+            test_core_out.txt
+            selftest_report.txt
+            smoke_report.txt
+            bench_ci.csv
+            bench_ci_out.txt
+            deps.txt
+          if-no-files-found: warn
