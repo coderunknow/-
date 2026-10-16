@@ -321,3 +321,57 @@ Measured optimizer idle overhead ≈ 0.0% CPU (below sampling resolution) and
 - Benchmark actions against real browsers pending a machine with browsers.
 
 ---
+
+## Entry 3 — 2026-10-16 — Final audit and authorization change (merge + release tag)
+
+### 3.1 Policy change recorded explicitly
+
+The original brief contained absolute restrictions: "Never merge the PR", "Never
+create a release or version tag", "leave it OPEN AND UNMERGED". The user's
+subsequent instruction — "Make a final audit carefully and implement merge and
+tag release after everything is checked strictly" — **explicitly rescinds those
+restrictions** for merge and release tagging. The later, explicit instruction of
+the same user supersedes the earlier brief. Residual restrictions that were NOT
+rescinded remain in force and were honored: no force-push, no squash/rebase
+merge (a plain merge commit was used), no auto-merge, no repository permission
+or visibility changes, no remote changes.
+
+### 3.2 Final audit results (all commands executed; evidence in AGENT_LOG A13)
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Working tree clean, branch `arena/6f917583-repo`, remote `coderunkown/-` | PASS |
+| 2 | HEAD `aeaa937` == PR #1 head OID | PASS |
+| 3 | 46 tracked files; no binaries/build artifacts tracked | PASS |
+| 4 | LICENSE (MIT) intact and unmodified | PASS |
+| 5 | Secrets scan (tokens/keys/passwords) over tracked files | PASS (none) |
+| 6 | Machine-specific paths: only inside AGENT_LOG execution evidence, none in code/build scripts | PASS |
+| 7 | Prohibited ops scan (terminate/inject/remote-thread/hooks/debug) | PASS (none) |
+| 8 | Security/service/firewall/hosts-file modification scan | PASS (none) |
+| 9 | Network/cloud API scan (WinHTTP/WinINet/sockets/URLs in src/) | PASS (none; no runtime network use) |
+| 10 | Elevation policy: manifest `asInvoker`, no `runas` | PASS |
+| 11 | No REALTIME priority assignment anywhere | PASS |
+| 12 | Stub/fake/TODO scan in src/ | PASS (none) |
+| 13 | Version consistency (0.1.0-dev1 / 0.1.0.1 across version.h, app.rc, app.manifest, README, UI) | PASS |
+| 14 | Host unit tests re-executed | PASS (93 checks, 0 failures) |
+| 15 | Cross-build + PE import re-verification | PASS (1,219,584 B; OS DLLs + UCRT api-sets only) |
+| 16 | DESIGN_LOG/AGENT_LOG append-only structure intact (Entry 1 verbatim, order preserved) | PASS |
+| 17 | Windows CI on head commit: `build-test-bench` success (push + PR events) | PASS |
+| 18 | External `Kilo Code Review` bot: `action_required` (insufficient credits) | NOTED (external service; not a required check; `mergeable: MERGEABLE`) |
+| 19 | No pre-existing tags or releases (no `v0.1.0-dev1` collision) | PASS |
+
+### 3.3 Release decision
+
+- Merge: PR #1 via merge commit (`gh pr merge 1 --merge`). Not squashed, not
+  rebased, no auto-merge.
+- Release tag: annotated tag **`v0.1.0-dev1`** on the merge commit, pushed to
+  `origin`. Tag form uses the conventional `v` prefix; application version
+  fields remain `0.1.0-dev1`.
+- GitHub Release: created from the tag, marked **pre-release** (dev version),
+  no binary assets attached (the locally built EXE is a zig cross-build
+  verification artifact without embedded RT_VERSION; the authoritative MSVC
+  build is reproducible via CMake and was verified in windows-ci artifacts).
+- Post-merge facts (merge SHA, tag SHA, release URL) are recorded in AGENT_LOG
+  A14 after they exist; nothing is written before verification.
+
+---

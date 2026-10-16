@@ -174,3 +174,40 @@ workflow (API-readable) after two reporting iterations.
   DESIGN_LOG §1.4) pending user approval of that architecture.
 
 ---
+
+### A13 — Final audit (2026-10-16, pre-merge) — commands and results
+- `git status --short` → empty (clean); `git rev-parse HEAD` →
+  `aeaa9377296cf183f918e1320fe6948db89fac9a`; `gh pr view 1` headOid identical.
+- `git ls-files` → 46 files; artifact-name filter (`*.exe/*.obj/*.pdb/build/...`)
+  → none. `head -3 LICENSE` → MIT, (c) 2026 coderunknow, unmodified.
+- `git grep` secrets patterns (ghp_/github_pat_/AKIA/private keys/password=)
+  → no matches in tracked files. Credential patterns in DESIGN_LOG/AGENT_LOG →
+  none. Machine paths (`/home/user`, toolchain) appear only in AGENT_LOG
+  command evidence, not in code or build scripts.
+- `git grep` prohibited APIs (TerminateProcess, CreateRemoteThread,
+  WriteProcessMemory, VirtualAllocEx, SetWindowsHookEx, DebugActiveProcess) in
+  src/ → none. Service/firewall/hosts patterns → none. Network APIs
+  (WinHttp/InternetOpen/URLDownload/WSAStartup) in src/ → none.
+- `src/app.manifest` → `requestedExecutionLevel level="asInvoker"`; no `runas`.
+  REALTIME `SetPriorityClass` assignments → none. TODO/FIXME/fake/mock/stub in
+  src/ → none.
+- Version fields re-grepped: `0.1.0-dev1` / `0.1.0.1` consistent across
+  `src/core/version.h`, `src/app.rc`, `src/app.manifest`, `README.md`, `ui.cpp`.
+- `./scripts/run_unit_tests.sh` → `=== 93 checks, 0 failures ===` (exit 0).
+- `ZIG=/home/user/toolchain/zigpkg/ziglang/zig ./scripts/build_mingw.sh` →
+  `built: build/win/WinResGov.exe (1219584 bytes)`. PE import table re-parsed:
+  ADVAPI32/COMCTL32/GDI32/KERNEL32/SHELL32/USER32/comdlg32 + api-ms-win-crt-*
+  only; self-contained gate **PASS**.
+- Log integrity: DESIGN_LOG `## Entry 1` (line 8) precedes `## Entry 2`
+  (line 253); AGENT_LOG A1..A12 headers present in order — append-only intact.
+- `gh api .../check-runs` on `aeaa937`: `build-test-bench: success` (both push
+  and PR runs); `Kilo Code Review: action_required` (external bot lacks
+  credits). `gh pr view 1` → `state: OPEN, mergeable: MERGEABLE,
+  mergeStateStatus: UNSTABLE` (unstable solely due to the external bot).
+- `gh api .../matching-refs/tags` → 0 tags; `gh release list` → empty.
+  No `v0.1.0-dev1` collision.
+- Audit verdict: **PASS (19/19 checks; 1 external note)**. Authorized to merge
+  and tag per the user's latest instruction (policy change recorded at
+  DESIGN_LOG Entry 3.1).
+
+---
