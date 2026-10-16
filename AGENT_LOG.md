@@ -211,3 +211,36 @@ workflow (API-readable) after two reporting iterations.
   DESIGN_LOG Entry 3.1).
 
 ---
+
+### A14 — Merge, release tag, and GitHub Release (2026-10-16, post-merge record)
+
+Pre-merge CI gate: `windows-ci` on `6ef0825` (the exact PR head) — all 14 steps
+green (build, test_core, selftest, smoke, benchmark, dumpbin gate, VERSIONINFO).
+
+- Merge: `gh pr merge 1 --merge` → exit 0. `gh pr view 1` →
+  **state: MERGED**, mergedAt `2026-10-16T12:46:22Z`,
+  mergeCommit **`acdc28cc36db7650f17d0284b53c3af99226e6eb`**
+  ("Merge pull request #1 from coderunknow/arena/6f917583-repo").
+  Merge commit used (not squash, not rebase); no auto-merge; no force-push.
+- Release tag: annotated tag **`v0.1.0-dev1`** created on the merge commit
+  (`git cat-file -t` → `tag`; `git rev-list -n1` → `acdc28cc36db7650f17d0284b53c3af99226e6eb`)
+  and pushed (`* [new tag] v0.1.0-dev1 -> v0.1.0-dev1`). Remote ref verified via
+  API: `refs/tags/v0.1.0-dev1`.
+- GitHub Release: **https://github.com/coderunknow/-/releases/tag/v0.1.0-dev1**
+  (name "Windows Resource Governor v0.1.0-dev1", **isPrerelease: true**,
+  isDraft: false, publishedAt `2026-10-16T12:47:00Z`, targetCommitish `main`,
+  no binary assets by design — README §4 build instructions and the
+  `winresgov-v0.1.0-dev1` CI artifacts of the `acdc28c` run are referenced).
+- Residual original restrictions honored: no squash/rebase merge, no auto-merge,
+  no force-push, no repository permission/visibility changes, no remote changes.
+- This entry lives on `arena/6f917583-repo` (the only branch this session may
+  push); `main` carries the complete pre-merge record through the merge commit
+  and the release notes carry the final links.
+
+**Task state: COMPLETE.** PR #1 merged; release `v0.1.0-dev1` tagged and
+published as a pre-release. BLOCKED items (reference-hardware benchmarks,
+interactive dashboard testing, real-browser optimization runs, per-tab
+management, network request filtering) remain accurately labeled as previously
+recorded in A11/DESIGN_LOG Entry 2.
+
+---
