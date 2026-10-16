@@ -226,20 +226,25 @@ Test statuses use exactly: PASS / FAIL / BLOCKED / NOT RUN.
 
 | # | Test | Status | Evidence |
 |---|------|--------|----------|
-| 1 | Portable core unit tests (ini/config/stats/engine/csv: 93 checks) | PASS | `scripts/run_unit_tests.sh` → `93 checks, 0 failures` (Linux g++ 12.2); also runs as `test_core.exe` on Windows CI |
-| 2 | Cross-compile Win32 x64 (build correctness) | PASS | `zig c++ -target x86_64-windows-gnu` → `build/win/WinResGov.exe` (1,217,536 B) |
-| 3 | Single-EXE dependencies | PASS (cross-build verified locally) / CI re-verifies MSVC build | PE import table: only `KERNEL32/USER32/GDI32/ADVAPI32/SHELL32/COMCTL32/COMDLG32` + `api-ms-win-crt-*` (UCRT, OS component on Win10). No VCRUNTIME/MSVCP/libstdc++. |
-| 4 | Windows runtime smoke (process discovery, metrics, engine, safety) | see CI logs | `WinResGov.exe --smoke` on `windows-2022` (job `windows-ci`) |
-| 5 | In-app selftest | see CI logs | `WinResGov.exe --selftest` on `windows-2022` |
-| 6 | Benchmark baseline vs candidate (real run) | see CI logs | `WinResGov.exe --bench --seconds 12` on `windows-2022`, CSV artifact `winresgov-v0.1.0-dev1` |
-| 7 | Windows runtime verification on the *reference* hardware (i5-7300U) | BLOCKED | environment is Linux; no Windows machine or Wine available |
-| 8 | GUI dashboard manual interaction testing | BLOCKED | no interactive Windows session in this environment; CI validates headless modes only |
-| 9 | Per-tab management | BLOCKED (by design) | native-only constraint; see §2 |
-| 10 | Network request filtering | BLOCKED (by design) | native-only constraint; see §2 |
+| 1 | Portable core unit tests (ini/config/stats/engine/csv: 93 checks) | **PASS** | `scripts/run_unit_tests.sh` → `93 checks, 0 failures` (Linux g++ 12.2) **and** `test_core.exe` on Windows CI → `93 checks, 0 failures` |
+| 2 | Cross-compile Win32 x64 (build correctness) | **PASS** | `zig c++ -target x86_64-windows-gnu` → `build/win/WinResGov.exe` (1,219,584 B) |
+| 3 | MSVC Release build with static CRT (build correctness) | **PASS** | windows-ci `Build Release` step (run 38900712691) |
+| 4 | Single-EXE runtime dependencies | **PASS** | PE imports verified locally (cross-build) and by `dumpbin /dependents` on the MSVC build (CI): `KERNEL32/USER32/GDI32/ADVAPI32/SHELL32/COMCTL32/COMDLG32` only — no VCRUNTIME/MSVCP/libstdc++ |
+| 5 | In-app selftest on Windows | **PASS** | `WinResGov.exe --selftest` on windows-ci → `93 checks, 0 failures`, `SELFTEST: PASS` |
+| 6 | Runtime smoke on Windows (discovery/metrics/engine/safety/config) | **PASS** | `WinResGov.exe --smoke` on windows-ci → `17 checks, 0 failures`, `SMOKE: PASS` (Windows 10.0 build 20348 x64, 130 processes enumerated, self found exactly once, no double counting) |
+| 7 | Benchmark baseline vs candidate on Windows (real run) | **PASS** | `--bench --seconds 12` on windows-ci: baseline (monitor-only) self CPU avg 0.0% peak 0.0%, self WS avg 5.92 MB; candidate (optimizer active) self CPU avg 0.0%, self WS avg 6.00 MB; 0 actions/0 failures (runner has no browsers — honest zero); CSV + report mirrored to PR #1 comment |
+| 8 | VERSIONINFO metadata in the executable | **PASS** | CI check: ProductVersion `0.1.0-dev1`, OriginalFilename `WinResGov.exe` |
+| 9 | Windows runtime verification on the *reference* hardware (i5-7300U) | **BLOCKED** | dev environment is Linux; no Windows machine or Wine available |
+| 10 | GUI dashboard manual interaction testing | **BLOCKED** | no interactive Windows session in this environment; CI validates headless modes only |
+| 11 | Optimization actions against real browser processes | **NOT RUN** | CI runner has no Brave/Chrome/Edge processes; synthetic-process engine checks cover the decision logic (smoke §5) |
+| 12 | Per-tab management | **BLOCKED** (by design) | native-only constraint; see §2 |
+| 13 | Network request filtering | **BLOCKED** (by design) | native-only constraint; see §2 |
 
 CI runs on every push/PR (`.github/workflows/windows-ci.yml`): MSVC Release
 build with static CRT, unit tests, selftest, smoke, 12 s benchmark with CSV
 artifact, `dumpbin /dependents` self-containment gate, and VERSIONINFO check.
+The full machine-readable reports of the verified run (run id 38900712691) are
+mirrored into a comment on PR #1 (queryable through the GitHub API).
 
 ## 8. Known defects and limitations (v0.1.0-dev1)
 

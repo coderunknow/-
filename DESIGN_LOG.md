@@ -249,3 +249,75 @@ result, PR state. No claims without evidence.
 Statuses will be updated in later append-only entries (never edited in place above).
 
 ---
+
+## Entry 2 — 2026-10-16 — Implementation, verification, and final status
+
+### 2.1 Scope changes and deviations from the original brief
+
+- **Branch name (deviation):** the brief suggested
+  `feat/windows-resource-governor-v0.1.0-dev1`. This Arena session is fixed to
+  the branch `arena/6f917583-repo` (work on any other branch is not tracked by
+  the session), so the dedicated feature branch is `arena/6f917583-repo` and the
+  PR is opened from it. Recorded at D10 pre-implementation; restated here.
+- **Resource embedding (build-variant difference):** the local zig cross-build
+  cannot embed `RT_VERSION`/manifest (no resource compiler in the toolchain);
+  version strings are compiled in and DPI awareness is set programmatically.
+  The authoritative MSVC build (local/CI) embeds both. D13.
+- **Trim candidate budget (design hardening):** tests revealed that a naive
+  "top-3 successes per tick" rule could rotate through the whole process list
+  over consecutive ticks (a trim-everything-on-a-timer anti-pattern). The rule
+  was hardened to "at most 3 *candidates considered* per tick, biggest working
+  sets first; cooldown-skips consume the budget" (engine.cpp). Requirement D
+  satisfied more strictly than originally planned.
+- **Restoration policy clarification:** restore-on-recovery runs even when
+  user automation is disabled — undoing our own modifications is treated as a
+  safety obligation, not an optimization. Documented in README §3.2.
+- **CI report mirroring:** GitHub Actions log/artifact download hosts were
+  unreachable from the monitoring network; the workflow now mirrors the report
+  files into a PR comment (API-readable) so results remain independently
+  verifiable. Reporting is a non-fatal step; verification gates stay fatal.
+
+### 2.2 Final requirement status board (supersedes the board in Entry 1; that
+board is left verbatim above per append-only rule)
+
+| Req | Description | Status | Evidence |
+|-----|-------------|--------|----------|
+| R1 | Verified repository + workflow (branch/commit/push/PR) | **DONE** | repo `coderunknow/-` verified; 11 commits on `arena/6f917583-repo`; pushed; PR #1 open against `main` |
+| R2 | Append-only DESIGN_LOG.md / AGENT_LOG.md | **DONE** | both files, evidence-based entries |
+| R3 | Real resource monitoring (A) | **DONE** | sysmon/procmon; Windows CI smoke: 130 processes, metrics distinct, self overhead measured |
+| R4 | Adaptive engine with 3 profiles (B) | **DONE** | per-profile thresholds, hysteresis, dwell, cooldowns, user automation; 93-check suite + smoke profile checks |
+| R5 | CPU/priority/power optimization (C) | **DONE (API path)** | priority + execution-speed throttle with restore; real application against browser processes **NOT RUN** (no browsers on CI); failure paths unit-tested |
+| R6 | Working-set management with policy gates (D) | **DONE (policy path)** | policy gate default OFF, bounded candidates, cooldowns; real trim against browsers **NOT RUN** (no browsers on CI) |
+| R7 | Persistent validated configuration (E) | **DONE** | INI load/validate/save round-trip PASS on Windows (smoke); corrupt/missing → safe defaults (unit tests) |
+| R8 | Benchmarking + CSV (F) | **DONE** | 12 s run on Windows CI with measured phase stats; CSV export; baseline≈idle overhead, candidate≈active overhead |
+| R9 | Safety/diagnostics (G) | **DONE** | protected/excluded/foreground/root/RT rules unit-tested + smoke-checked; audit history; restore-all |
+| R10 | Native dashboard | **DONE (code complete)** | controls wired to real operations; interactive testing **BLOCKED** (no interactive Windows session) |
+| R11 | Single-EXE verification | **DONE** | PE imports (zig build) + `dumpbin /dependents` (MSVC build): OS DLLs only |
+| R12 | Strict tests + real statuses | **DONE** | Linux 93/93 PASS; Windows: 93/93 + 17/17 PASS; blocked items labeled |
+| R13 | v0.1.0-dev1 metadata + documentation | **DONE** | version.h/rc/manifest/README/config consistent; VERSIONINFO verified on Windows |
+| R14 | Tab management (native-only) | **BLOCKED** | §1.4; minimum future architecture documented |
+| R15 | Network request filtering (native-only) | **BLOCKED** | §1.4; minimum future architecture documented |
+
+### 2.3 Benchmark result summary (measured, Windows CI runner)
+
+Hardware: AMD EPYC 7763 (4 logical processors presented), Windows 10.0 build
+20348 x64, elevated service account. **Not the reference hardware.** 12 s run,
+500 ms sampling, 12 samples per phase:
+- Baseline (monitoring only): sysCpu avg 2.5% / peak 25.0%; self CPU avg 0.0% /
+  peak 0.0%; self WS avg 5.92 MB / peak 5.93 MB; usedMem avg 15.2%.
+- Candidate (optimizer active): sysCpu avg 0.5% / peak 2.3%; self CPU avg 0.0% /
+  peak 0.0%; self WS avg 6.00 MB / peak 6.02 MB; usedMem avg 15.3%.
+- Actions performed: 0 (the runner hosts no browser processes — honest zero);
+  failures: 0; restores at end: 0.
+Measured optimizer idle overhead ≈ 0.0% CPU (below sampling resolution) and
+≈ 5.9 MB working set; active overhead ≈ 0.0% CPU and ≈ 6.0 MB working set.
+
+### 2.4 Known defects and limitations (see README §8 for the full list)
+
+- Private working set is best-effort (access/cap dependent).
+- Power throttling unavailable before Windows 10 1709 (recorded, not retried).
+- Zig cross-build artifact lacks embedded version/manifest resources.
+- Priority changes are not CPU caps (documented Windows semantics).
+- Benchmark actions against real browsers pending a machine with browsers.
+
+---

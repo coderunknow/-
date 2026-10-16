@@ -65,3 +65,112 @@ results actually observed are recorded. No credentials or tokens are recorded.
 6. README + logs; commits on `arena/6f917583-repo`; push; PR to `main` (left OPEN).
 
 ---
+
+### A7 — Portable core implementation + host tests (2026-10-16)
+- Implemented `src/core/`: types, stats, ini, config, engine (profiles,
+  pressure levels, hysteresis/dwell/cooldowns, safety rules, restore planning),
+  csv; `tests/core_tests.h` + `tests/test_core.cpp`.
+- `g++ -std=c++17 -Wall -Wextra -O2 -I src tests/test_core.cpp src/core/*.cpp -o build/host/test_core`
+  then `./build/host/test_core`:
+  - First run: 89 checks, 10 failures. Root causes found and fixed:
+    (a) test arithmetic error on normalized CPU% (0.25 core on 4 LP is 6.25%,
+    not 25%); (b) engine hysteresis only shifted the Low threshold — fixed to
+    shift all entry thresholds; (c) realtime-class processes were eligible for
+    throttling — now never modified in any way; (d) trim "top-3" loop rotated to
+    smaller processes across ticks (trim-on-a-timer anti-pattern) — fixed to
+    bound *candidates considered* per tick; (e) recovery restore was gated on
+    automation being enabled — restore now runs regardless (safety obligation).
+  - Final: **93 checks, 0 failures** (exit 0). Full log:
+    `build/host/test_core_full.txt` (not committed; build/ is gitignored).
+
+### A8 — Windows layer implementation + local cross-build (2026-10-16)
+- Implemented `src/win/` (platform, sysmon, procmon, cpuopt, wsopt, executor,
+  bench, app, ui), `src/main.cpp` (CLI modes + dashboard), `src/app.rc` +
+  `src/app.manifest`, CMakeLists.txt, Makefile, scripts/, .gitignore.
+- `ZIG=/home/user/toolchain/zigpkg/ziglang/zig ./scripts/build_mingw.sh`:
+  - Compile errors fixed along the way: wrong API name
+    `GetProcessPriorityClass` (correct: `GetPriorityClass`) in procmon.cpp and
+    cpuopt.cpp; missing `<windows.h>` in executor.cpp;
+    `CreateStatusWindowW` takes 4 arguments; `it->priorityClass` →
+    `it->second.priorityClass` in main.cpp; missing `-lgdi32` at link.
+  - Final: **built: build/win/WinResGov.exe (1,219,584 bytes)**, exit 0.
+- PE import table parsed (custom Python PE parser): x64 PE32+; imports =
+  ADVAPI32, SHELL32, COMCTL32, COMDLG32, GDI32, KERNEL32, USER32 +
+  `api-ms-win-crt-*` (UCRT API-sets = OS components on Windows 10).
+  Non-self-contained imports: **NONE**.
+
+### A9 — Git workflow (2026-10-16)
+- Commits (conventional messages, task files only):
+  - `c8e7cad` docs: add DESIGN_LOG.md and AGENT_LOG.md
+  - `677d825` feat(core): portable engine, config, INI, stats and CSV modules
+  - `c223532` test(core): portable unit test suite (93 checks)
+  - `c8c904d` feat(win): Win32 monitoring, optimization, benchmark, dashboard, CLI
+  - `2537ade` build: CMake, zig cross-build script, resources
+  - `8d43ae3` ci: windows-ci workflow
+  - `84947fc` docs: README
+  - `cf8bf73` fix(ci): smoke engine checks independent of installed browsers; PR report mirror
+  - `c06447c` fix(ci): robust PR report publishing
+- `git push -u origin arena/6f917583-repo` → success (verified from push output).
+- PR opened via `gh pr create --base main --head arena/6f917583-repo` →
+  **https://github.com/coderunknow/-/pull/1** (state: OPEN, to be left unmerged).
+
+### A10 — Windows CI execution history (real results; never fabricated)
+Runner: GitHub-hosted `windows-2022` (Windows 10.0 build 20348 x64,
+AMD EPYC 7763, 4 LP presented, elevated service account — NOT reference
+hardware). Note: `gh run view --log` and `gh run download` (artifact host
+`productionresultssa*.blob.core.windows.net`) were unreachable from this
+network (TLS EOF), so reports were mirrored into PR #1 comments via the
+workflow (API-readable) after two reporting iterations.
+
+1. **Run 38899670666 (push, first attempt): Build ✓, Unit tests ✓, Selftest ✓,
+   Smoke ✗, Benchmark skipped.** Failure diagnosed from the smoke assertions:
+   engine check asserted `actions > 0` under pressure, but the CI runner hosts
+   no browser processes — zero eligible targets is *correct* behavior. The
+   check was fixed to use synthetic processes (same approach as the unit
+   tests); the metric-distinction check was made self-process-based (suspended
+   system processes can legitimately report WS 0).
+2. **Run 38900388487 (push, second attempt): Build ✓, Unit tests ✓,
+   Selftest ✓, Smoke ✓, Benchmark ✓, dumpbin gate ✓, VERSIONINFO ✓;
+   report-publish step ✗** (PowerShell quoting bug in the jq filter). Fixed by
+   posting JSON via `gh api --input` with `ConvertFrom-Json` matching, and made
+   the reporting step non-fatal so it can never mask verification results.
+3. **Run 38900712691 (push, third attempt) / PR run 38900705777: ALL STEPS ✓
+   (green).** Verified results (from the PR #1 report comment):
+   - `test_core.exe`: 93 checks, 0 failures — **PASS**
+   - `WinResGov.exe --selftest`: 93 checks, 0 failures, SELFTEST: PASS
+   - `WinResGov.exe --smoke`: 17 checks, 0 failures, SMOKE: PASS
+     (130 processes enumerated; self identified exactly once; 0 browsers, 1
+     inaccessible process on the runner; ws/private/commit distinct; engine
+     Saver/Balanced act at High (2 actions), Performance action-free at
+     Moderate; safety: plans target only eligible synthetic background work;
+     restore-all empty-state no-op; startup query non-mutating)
+   - `WinResGov.exe --bench --seconds 12 --csv bench_ci.csv`: measured —
+     baseline (12 samples): sysCpu avg 2.5% peak 25.0%, self CPU avg 0.0%
+     peak 0.0%, self WS avg 5.92 MB peak 5.93 MB, usedMem avg 15.2%;
+     candidate (12 samples): sysCpu avg 0.5% peak 2.3%, self CPU avg 0.0%
+     peak 0.0%, self WS avg 6.00 MB peak 6.02 MB, usedMem avg 15.3%;
+     actions 0 (no browsers present — honest zero), failures 0, restores 0.
+   - `dumpbin /dependents WinResGov.exe` (MSVC /MT build): ADVAPI32, SHELL32,
+     COMCTL32, COMDLG32, USER32, GDI32, KERNEL32 only — no VCRUNTIME/MSVCP —
+     single-EXE gate **PASS**.
+   - VERSIONINFO check: ProductVersion `0.1.0-dev1`, OriginalFilename
+     `WinResGov.exe` — **PASS**.
+
+### A11 — BLOCKED / NOT RUN (explicit, for the record)
+- Reference-hardware (i5-7300U) runtime and benchmark: **BLOCKED** (Linux dev
+  environment, no Windows machine/Wine).
+- Interactive dashboard testing: **BLOCKED** (no interactive Windows session).
+- Optimization actions against real browser processes (priority/throttle/trim):
+  **NOT RUN** (CI runner hosts no Brave/Chrome/Edge). Engine decision logic is
+  covered by synthetic-process unit tests and smoke checks.
+- Per-tab management, network request filtering: **BLOCKED** by the native-only
+  constraint (see DESIGN_LOG §1.4); deliberately not faked.
+
+### A12 — Remaining work
+- Re-run benchmarks on the reference hardware and with real browser sessions;
+  record before/after CSVs (needs a Windows machine).
+- Manual dashboard pass on an interactive Windows session.
+- Post-0.1.0-dev1: extension + local IPC path for tab-level features (design in
+  DESIGN_LOG §1.4) pending user approval of that architecture.
+
+---
