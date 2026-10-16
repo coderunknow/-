@@ -1,0 +1,40 @@
+// Windows resource script: embedded manifest + VERSIONINFO.
+// Compiled by rc.exe (MSVC builds / CI) or windres (MinGW builds).
+// Numeric VERSIONINFO is 0.1.0.1; string form is 0.1.0-dev1 (see DESIGN_LOG D11).
+
+#define WRG_VER_MAJOR 0
+#define WRG_VER_MINOR 1
+#define WRG_VER_PATCH 0
+#define WRG_VER_BUILD 1
+
+// Manifest path is resolved via the resource compiler include path (src/ is on it).
+1 RT_MANIFEST "app.manifest"
+
+1 VERSIONINFO
+ FILEVERSION WRG_VER_MAJOR, WRG_VER_MINOR, WRG_VER_PATCH, WRG_VER_BUILD
+ PRODUCTVERSION WRG_VER_MAJOR, WRG_VER_MINOR, WRG_VER_PATCH, WRG_VER_BUILD
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "coderunknow"
+            VALUE "FileDescription", "Windows Resource Governor - native browser resource optimizer"
+            VALUE "FileVersion", "0.1.0-dev1"
+            VALUE "InternalName", "WinResGov"
+            VALUE "LegalCopyright", "Copyright (c) 2026 coderunknow. MIT License."
+            VALUE "OriginalFilename", "WinResGov.exe"
+            VALUE "ProductName", "Windows Resource Governor"
+            VALUE "ProductVersion", "0.1.0-dev1"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

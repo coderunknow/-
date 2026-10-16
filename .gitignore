@@ -1,0 +1,20 @@
+# Build outputs
+build/
+out/
+*.o
+*.obj
+*.exe
+*.res
+*.ilk
+*.pdb
+*.idb
+
+# Local tooling
+__pycache__/
+.vscode/
+.idea/
+
+# OS noise
+Thumbs.db
+Desktop.ini
+.DS_Store
