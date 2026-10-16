@@ -110,6 +110,7 @@ jobs:
       # artifact hosts are unreachable from the reporter's network.
       - name: Publish reports to PR comment
         if: always()
+        continue-on-error: true
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -117,22 +118,28 @@ jobs:
           $pr = "${{ github.event.pull_request.number }}"
           if (-not $pr) {
             $head = "${{ github.ref_name }}"
-            $pr = gh api "repos/$env:GITHUB_REPOSITORY/pulls?head=$($env:GITHUB_REPOSITORY.Split('/')[0]):$head" --jq '.[0].number'
+            $owner = $env:GITHUB_REPOSITORY.Split('/')[0]
+            $prList = gh api "repos/$env:GITHUB_REPOSITORY/pulls?head=$($owner):$($head)&state=open" | ConvertFrom-Json
+            if ($prList -and $prList.Count -gt 0) { $pr = $prList[0].number }
           }
           if (-not $pr) { Write-Host "no PR found; skipping"; exit 0 }
-          $body = "<!-- winresgov-ci-report -->`n## windows-ci report (run $($env:GITHUB_RUN_ID), attempt $($env:GITHUB_RUN_ATTEMPT))`n```````n"
+          $bt = [char]96
+          $fence = "$bt$bt$bt"
+          $body = "<!-- winresgov-ci-report -->`n## windows-ci report (run $($env:GITHUB_RUN_ID), attempt $($env:GITHUB_RUN_ATTEMPT))`n$fence`n"
           foreach ($f in 'test_core_out.txt','selftest_report.txt','smoke_report.txt','bench_ci_out.txt','deps.txt') {
             if (Test-Path $f) { $body += "---- $f ----`n" + (Get-Content $f -Raw) + "`n" }
           }
-          $body += "```````"
+          $body += "$fence"
           if ($body.Length -gt 60000) { $body = $body.Substring(0, 60000) + "`n...truncated" }
-          Set-Content -Path report_body.md -Value $body
-          $existing = gh api "repos/$env:GITHUB_REPOSITORY/issues/$pr/comments" --jq "[.[] | select(.body | startswith(`"<!-- winresgov-ci-report -->`"))] | .[-1].id"
-          if ($existing -and $existing -ne 'null') {
-            gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/issues/comments/$existing" -F body=@report_body.md | Out-Null
-            Write-Host "updated existing report comment $existing"
+          $json = @{ body = $body } | ConvertTo-Json -Depth 4
+          [System.IO.File]::WriteAllText("$PWD/report.json", $json)
+          $comments = gh api "repos/$env:GITHUB_REPOSITORY/issues/$pr/comments" | ConvertFrom-Json
+          $existing = $comments | Where-Object { $_.body -like '<!-- winresgov-ci-report -->*' } | Select-Object -Last 1
+          if ($null -ne $existing) {
+            gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/issues/comments/$($existing.id)" --input report.json | Out-Null
+            Write-Host "updated report comment $($existing.id)"
           } else {
-            gh api -X POST "repos/$env:GITHUB_REPOSITORY/issues/$pr/comments" -F body=@report_body.md | Out-Null
+            gh api -X POST "repos/$env:GITHUB_REPOSITORY/issues/$pr/comments" --input report.json | Out-Null
             Write-Host "created report comment on PR #$pr"
           }
 
